@@ -1,0 +1,5 @@
+CustomQAmodel/LLM models
+CustomQAmodel/datasets
+CustomQAmodel/models/t5_model
+CustomQAmodel/temp/
+CustomQAmodel/checkpoints
