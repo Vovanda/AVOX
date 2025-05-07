@@ -26,15 +26,31 @@ class VKOAuthProvider(BaseOAuthProvider):
         url = "https://oauth.vk.com/authorize?" + urlencode(params)
         return url
 
-    def exchange_code(self, code: str) -> Dict[str, Any]:
-        params = {
+
+    def exchange_code(self, code: str, code_verifier: Optional[str] = None) -> Dict[str, Any]:
+        data = {
+            "grant_type": "authorization_code",
             "client_id": self.client_id,
             "client_secret": self.client_secret,
             "redirect_uri": self.redirect_uri,
-            "code": code,
+            "code": code
         }
-        url = "https://oauth.vk.com/access_token"
-        response = requests.get(url, params=params)
+        if code_verifier:
+            data["code_verifier"] = code_verifier
+        url = "https://id.vk.com/oauth2/token"
+        response = requests.post(url, data=data)
+        response.raise_for_status()
+        return response.json()
+
+    def refresh_access_token(self, refresh_token: str) -> Dict[str, Any]:
+        data = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+        }
+        url = "https://id.vk.com/oauth2/token"
+        response = requests.post(url, data=data)
         response.raise_for_status()
         return response.json()
 

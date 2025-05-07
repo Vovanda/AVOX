@@ -1,5 +1,6 @@
 from fastapi import FastAPI
-from api.routes import router
+
+from auth.app.api.routes import router
 from core import config
 
 app = FastAPI(
