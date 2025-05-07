@@ -1,6 +1,7 @@
 from fastapi import FastAPI
-from api.routes import router
-from core import config
+
+from auth.app.api.routes import router
+from auth.app.core import config
 
 app = FastAPI(
     title=config.PROJECT_NAME,
@@ -9,4 +10,11 @@ app = FastAPI(
     redoc_url=None
 )
 
-app.include_router(router)
+app.include_router(router, prefix="/api/auth")
+
+@app.get("/health")
+async def health_check():
+    '''
+    Healthcheck endpoint.
+    '''
+    return {"status": "ok"}

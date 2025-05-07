@@ -84,3 +84,4 @@ volumes:
 networks:
   avox_net:
     driver: bridge
+
