@@ -1,6 +1,6 @@
 from fastapi import FastAPI
-from app.api.routes import router
-from app.core import config
+from api.routes import router
+from core import config
 
 app = FastAPI(
     title=config.PROJECT_NAME,

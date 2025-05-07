@@ -2,51 +2,57 @@ version: '3.8'
 
 services:
   api-gateway:
-    build: ./apigateway
+    build: avox_services/api_gateway
     env_file:
-      - ./apigateway/.env
+      - avox_services/api_gateway/.env
     depends_on:
       - auth
-      - taskmanager
+      - task-manager
     ports:
       - "8000:8000"
     networks:
       - avox_net
     labels:
-      - "com.docker.compose.project=avox"
+      com.docker.compose.project: avox
 
   auth:
-    build: ./auth
+    build: avox_services/auth
     env_file:
-      - ./auth/.env
+      - avox_services/auth/.env
     depends_on:
       - redis
+    ports:
+      - "8001:8001"
     networks:
       - avox_net
     labels:
-      - "com.docker.compose.project=avox"
-
-  llm-service:
-    build: ./LLM_service
-    env_file:
-      - ./LLM_service/.env
-    depends_on:
-      - postgres
-    networks:
-      - avox_net
-    labels:
-      - "com.docker.compose.project=avox"
+      com.docker.compose.project: avox
 
   task-manager:
-    build: ./task_manager
+    build: avox_services/task_manager
     env_file:
-      - ./task_manager/.env
+      - avox_services/task_manager/.env
     depends_on:
       - postgres
+    ports:
+      - "8002:8002"
     networks:
       - avox_net
     labels:
-      - "com.docker.compose.project=avox"
+      com.docker.compose.project: avox
+
+  llm-service:
+    build: avox_services/LLM_service
+    env_file:
+      - avox_services/LLM_service/.env
+    depends_on:
+      - postgres
+    ports:
+      - "8003:8003"
+    networks:
+      - avox_net
+    labels:
+      com.docker.compose.project: avox
 
   redis:
     image: redis:7-alpine
@@ -55,7 +61,7 @@ services:
     networks:
       - avox_net
     labels:
-      - "com.docker.compose.project=avox"
+      com.docker.compose.project: avox
 
   postgres:
     image: postgres:15-alpine
@@ -70,7 +76,7 @@ services:
     networks:
       - avox_net
     labels:
-      - "com.docker.compose.project=avox"
+      com.docker.compose.project: avox
 
 volumes:
   pg_data:
@@ -78,5 +84,3 @@ volumes:
 networks:
   avox_net:
     driver: bridge
-  labels:
-      - "com.docker.compose.project=avox"
