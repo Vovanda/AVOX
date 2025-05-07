@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  api-gateway:
+    build: ./apigateway
+    env_file:
+      - ./apigateway/.env
+    depends_on:
+      - auth
+      - taskmanager
+    ports:
+      - "8000:8000"
+    networks:
+      - avox_net
+    labels:
+      - "com.docker.compose.project=avox"
+
+  auth:
+    build: ./auth
+    env_file:
+      - ./auth/.env
+    depends_on:
+      - redis
+    networks:
+      - avox_net
+    labels:
+      - "com.docker.compose.project=avox"
+
+  llm-service:
+    build: ./LLM_service
+    env_file:
+      - ./LLM_service/.env
+    depends_on:
+      - postgres
+    networks:
+      - avox_net
+    labels:
+      - "com.docker.compose.project=avox"
+
+  task-manager:
+    build: ./task_manager
+    env_file:
+      - ./task_manager/.env
+    depends_on:
+      - postgres
+    networks:
+      - avox_net
+    labels:
+      - "com.docker.compose.project=avox"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - avox_net
+    labels:
+      - "com.docker.compose.project=avox"
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: avox
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - avox_net
+    labels:
+      - "com.docker.compose.project=avox"
+
+volumes:
+  pg_data:
+
+networks:
+  avox_net:
+    driver: bridge
+  labels:
+      - "com.docker.compose.project=avox"
