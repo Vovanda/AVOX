@@ -6,9 +6,6 @@ from dotenv import load_dotenv
 env = os.getenv("APP_ENV", "local")
 load_dotenv(dotenv_path=f".env.{env}", override=True)
 
-PROJECT_NAME = os.getenv("PROJECT_NAME", "AVOX Task Manager")
-PROJECT_VERSION = os.getenv("PROJECT_VERSION", "0.1.0")
-
 def get_database_url():
     app_env = os.getenv("APP_ENV", "local")
     db_driver = os.getenv("DB_DRIVER", "psycopg")
@@ -46,4 +43,8 @@ def get_database_url():
     # Фолбэк URL
     return f"postgresql+{db_driver}://postgres:{password}@localhost:5432/avox_llm"
 
+PROJECT_NAME = os.getenv("PROJECT_NAME", "AVOX LLM & Vectorizer")
+PROJECT_VERSION = os.getenv("PROJECT_VERSION", "0.1.0")
+REDIS_URL = os.getenv("REDIS_URL")
 DATABASE_URL = get_database_url()
+
