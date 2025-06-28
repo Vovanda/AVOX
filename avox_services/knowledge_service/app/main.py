@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+
 from api.routes import router
 from core import config
 

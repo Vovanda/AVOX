@@ -1,58 +1,76 @@
-version: '3.8'
-
 services:
   api-gateway:
     build: avox_services/api_gateway
     env_file:
-      - avox_services/api_gateway/.env
+      - avox_services/api_gateway/.env.${APP_ENV:-local}
+    environment:
+      - DB_HOST=${DB_HOST:-postgres}
+      - DB_PORT=${DB_PORT:-5432}
     depends_on:
-      - auth
-      - task-manager
+      postgres:
+        condition: service_healthy
+      auth:
+        condition: service_started
     ports:
       - "8000:8000"
     networks:
       - avox_net
-    labels:
-      com.docker.compose.project: avox
 
   auth:
     build: avox_services/auth
     env_file:
-      - avox_services/auth/.env
+      - avox_services/auth/.env.${APP_ENV:-local}
     depends_on:
       - redis
     ports:
       - "8001:8001"
     networks:
       - avox_net
-    labels:
-      com.docker.compose.project: avox
 
   task-manager:
-    build: avox_services/task_manager
+    build: avox_services/tasks_manager
     env_file:
-      - avox_services/task_manager/.env
+      - avox_services/tasks_manager/.env.${APP_ENV:-local}
     depends_on:
       - postgres
     ports:
       - "8002:8002"
     networks:
       - avox_net
-    labels:
-      com.docker.compose.project: avox
 
-  llm-service:
-    build: avox_services/LLM_service
+  knowledge_service:
+    build: avox_services/knowledge_service
     env_file:
-      - avox_services/LLM_service/.env
-    depends_on:
-      - postgres
-    ports:
-      - "8003:8003"
+      - avox_services/knowledge_service/.env.${APP_ENV:-local}
+    environment:
+      - DB_SCHEMA=kno
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
     networks:
       - avox_net
-    labels:
-      com.docker.compose.project: avox
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: avox_db
+    environment:
+      POSTGRES_DB: ${DB_NAME:-avox_kno}
+      POSTGRES_PASSWORD_FILE: /run/secrets/kno_db_password
+    secrets:
+      - kno_db_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./pg_data:/var/lib/postgresql/data
+      - ./avox_services/knowledge_service/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+    - "5432:5432"
+    networks:
+      - avox_net
 
   redis:
     image: redis:7-alpine
@@ -60,28 +78,18 @@ services:
       - "6379:6379"
     networks:
       - avox_net
-    labels:
-      com.docker.compose.project: avox
 
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: avox
-    volumes:
-      - pg_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    networks:
-      - avox_net
-    labels:
-      com.docker.compose.project: avox
+secrets:
+  kno_db_password:
+    file: avox_services/knowledge_service/secrets/${APP_ENV:-local}/db_password.txt
 
 volumes:
   pg_data:
+    name: avox_pg_data
 
 networks:
   avox_net:
     driver: bridge
-
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24

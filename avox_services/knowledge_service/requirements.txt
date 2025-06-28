@@ -1,0 +1,33 @@
+# Основные
+fastapi==0.110.0
+uvicorn[standard]==0.29.0
+python-dotenv==1.0.1
+
+# Асинхронные HTTP/SQL
+aiohttp==3.9.3
+asyncpg==0.29.0
+sqlalchemy[asyncio]==2.0.29
+psycopg[binary]==3.1.18
+
+# Векторные операции и ML
+sentence-transformers==2.2.2
+pgvector==0.2.4
+numpy==1.26.4  # Явное требование для sentence-transformers
+torch==2.3.0  # Базовый для трансформеров
+
+# LangChain Core
+langchain-core==0.2.1
+langchain-community==0.2.0
+langchain-text-splitters==0.2.0
+langchainhub==0.1.15
+
+# Вспомогательные
+sqlalchemy-utils==0.41.1
+alembic==1.13.1
+python-dateutil==2.9.0.post0
+pytz==2024.1
+
+# Типы (для mypy)
+types-pytz==2023.3.1.0
+types-python-dateutil==2.8.19.20240106
+types-requests==2.31.0.20240311

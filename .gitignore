@@ -4,5 +4,7 @@ CustomQAmodel/models/t5_model
 CustomQAmodel/temp/
 CustomQAmodel/checkpoints
 Langflow/Faiss
+__pycache__
+pg_data
 *secret*
 .venv
