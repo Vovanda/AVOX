@@ -10,8 +10,8 @@ from knowledge_service.app.models.enums import UserType, UserRole, AuthProvider
 
 class Company(Base, TimestampMixin):
     __tablename__ = 'companies'
-    id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column(String(255), nullable=False)
+    id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, comment="Уникальный идентификатор компании")
+    name = Column(String(255), nullable=False, comment="Название компании")
 
     # Связи
     users = relationship("User", back_populates="company", cascade="all, delete-orphan")
@@ -19,13 +19,13 @@ class Company(Base, TimestampMixin):
 
 class User(Base, TimestampMixin):
     __tablename__ = 'users'
-    id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    external_id = Column(String(255), nullable=True) # Уникальный только с provider!
-    provider = Column(Enum(AuthProvider), default=AuthProvider.INTERNAL, nullable=False)
-    company_id = Column(PG_UUID(as_uuid=True), ForeignKey('companies.id', ondelete="CASCADE"))
-    user_type = Column(Enum(UserType), default=UserType.UNKNOWN, nullable=False)
-    role = Column(Enum(UserRole), default=UserRole.BASE, nullable=False)
-    last_login = Column(DateTime, nullable=True)
+    id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, comment="Уникальный идентификатор пользователя")
+    external_id = Column(String(255), nullable=True, comment="Идентификатор во внешней системе") # Уникальный только с provider!
+    provider = Column(Enum(AuthProvider), default=AuthProvider.INTERNAL, nullable=False, comment="Провайдер аутентификации: INTERNAL, VK, GOOGLE и др.")
+    company_id = Column(PG_UUID(as_uuid=True), ForeignKey('companies.id', ondelete="CASCADE"), comment="Компания, к которой принадлежит пользователь")
+    user_type = Column(Enum(UserType), default=UserType.UNKNOWN, nullable=False, comment="Тип пользователя: UNKNOWN, INTERNAL, EXTERNAL, SYSTEM")
+    role = Column(Enum(UserRole), default=UserRole.BASE, nullable=False, comment="Роль пользователя: BASE, MANAGER, MODERATOR, ADMIN, API")
+    last_login = Column(DateTime, nullable=True, comment="Последний вход")
 
     #Связи
     company = relationship("Company", back_populates="users")

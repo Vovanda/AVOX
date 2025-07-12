@@ -3,8 +3,14 @@ from urllib.parse import urlparse, urlunparse
 
 from dotenv import load_dotenv
 
+base_dir = os.path.dirname(os.path.abspath(__file__))  # knowledge_service/app/core
+project_dir = os.path.dirname(os.path.dirname(base_dir))  # knowledge_service
+
 env = os.getenv("APP_ENV", "local")
-load_dotenv(dotenv_path=f".env.{env}", override=True)
+
+load_dotenv(dotenv_path=os.path.join(project_dir, f".env.{env}"), override=True)
+load_dotenv(dotenv_path=os.path.join(project_dir, f".env.{env}.secrets"), override=True)
+
 
 def get_database_url():
     app_env = os.getenv("APP_ENV", "local")
@@ -48,3 +54,11 @@ PROJECT_VERSION = os.getenv("PROJECT_VERSION", "0.1.0")
 REDIS_URL = os.getenv("REDIS_URL")
 DATABASE_URL = get_database_url()
 
+# LLM Configuration
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openrouter")
+VLLM_MODEL_PATH = os.getenv("VLLM_MODEL_PATH", "local/t5-model")
+
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL")
+OPENROUTER_SITE_URL = os.getenv("OPENROUTER_SITE_URL", "")
+OPENROUTER_SITE_NAME = os.getenv("OPENROUTER_SITE_URL", "")

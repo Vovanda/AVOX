@@ -1,33 +1,44 @@
 # Основные
-fastapi==0.110.0
-uvicorn[standard]==0.29.0
-python-dotenv==1.0.1
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+python-dotenv==1.1.1
 
 # Асинхронные HTTP/SQL
-aiohttp==3.9.3
-asyncpg==0.29.0
-sqlalchemy[asyncio]==2.0.29
-psycopg[binary]==3.1.18
+aiohttp==3.12.14
+httpx==0.28.1
+asyncpg==0.30.0
+sqlalchemy[asyncio]==2.0.41
+psycopg[binary]==3.2.9
 
 # Векторные операции и ML
-sentence-transformers==2.2.2
-pgvector==0.2.4
-numpy==1.26.4  # Явное требование для sentence-transformers
-torch==2.3.0  # Базовый для трансформеров
+nltk==3.9.1
+sentence-transformers==5.0.0
+huggingface_hub==0.33.4
+pgvector==0.4.1
+numpy==2.3.1
+torch==2.7.1
 
 # LangChain Core
-langchain-core==0.2.1
-langchain-community==0.2.0
-langchain-text-splitters==0.2.0
-langchainhub==0.1.15
+langchain-core==0.3.68
+langchain-community==0.3.27
+langchain-text-splitters==0.3.8
+langchainhub==0.1.21
+
+# OpenAI / OpenRouter
+openai==1.95.1
+requests==2.32.4
 
 # Вспомогательные
-sqlalchemy-utils==0.41.1
-alembic==1.13.1
+sqlalchemy-utils==0.41.2
+alembic==1.16.4
 python-dateutil==2.9.0.post0
-pytz==2024.1
+pytz==2025.2
 
 # Типы (для mypy)
-types-pytz==2023.3.1.0
-types-python-dateutil==2.8.19.20240106
-types-requests==2.31.0.20240311
+pydantic==2.11.7
+types-pytz==2025.2.0.20250516
+types-python-dateutil==2.9.0.20250708
+types-requests==2.32.4.20250611
+
+# Для статической проверки (опционально)
+mypy==1.5.1  # нужен только если используешь mypy для статической проверки

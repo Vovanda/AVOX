@@ -48,4 +48,3 @@ class EmbeddingStatus(PyEnum):
     PROCESSING = 'processing'
     COMPLETED = 'completed'
     FAILED = 'failed'
-    SCHEDULED = 'scheduled'

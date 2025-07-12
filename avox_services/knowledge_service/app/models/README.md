@@ -1,3 +1,7 @@
+# ER Diagram
+
+Ниже представлена актуальная структура моделей и связей в базе данных (обновлено: 13.07.2025).
+
 ```mermaid
 erDiagram
 
@@ -41,20 +45,19 @@ erDiagram
     DocumentChunk {
         UUID id PK "Уникальный идентификатор части документа"
         UUID document_id FK "Документ, к которому относится часть"
-        bool is_important "Отметка важности части"
+        bool is_hot "Актуальный ли фрагмент"
         text chunk_text "Текст фрагмента"
         int chunk_idx "Позиция части в документе"
-        vector(384) vector "Векторное представление текста"
         datetime created_at "Время создания"
         datetime updated_at "Время последнего обновления"
     }
 
     %% Эмбеддинги
-    ChunkEmbedding {
+    ChunkEmbedding384 {
         UUID id PK "Уникальный идентификатор эмбеддинга"
         UUID chunk_id FK "Фрагмент, к которому относится эмбеддинг"
-        vector(512) vector "Эмбеддинг вектора"
-        enum status "Статус: pending, success, failed"
+        vector(384) vector "Векторное представление (cosine; ivfflat)"
+        string embedding_model "Название модели эмбеддинга"
         datetime created_at "Время создания"
         datetime updated_at "Время последнего обновления"
     }
@@ -77,6 +80,6 @@ erDiagram
     User ||--o{ Document : creates
     User ||--o{ AccessGrant : has
     Document ||--o{ DocumentChunk : consists_of
-    DocumentChunk ||--o{ ChunkEmbedding : has
+    DocumentChunk ||--o{ ChunkEmbedding384 : has
     Document ||--o{ AccessGrant : shared_with
 ```
