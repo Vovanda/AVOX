@@ -1,4 +1,4 @@
-from knowledge_service.app.llm.base_provider import BaseLLMProvider
+from knowledge_service.app.core import config
 from knowledge_service.app.llm.base_provider import BaseLLMProvider
 from knowledge_service.app.llm.openrouter_provider import OpenRouterProvider
 from knowledge_service.app.llm.vllm_provider import VLLMProvider

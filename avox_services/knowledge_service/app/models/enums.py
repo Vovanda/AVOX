@@ -26,11 +26,11 @@ class DocAccessRole(PyEnum):  # Уровни доступа
     EDITOR = 'editor'           # Редактирование
 
 class SourceType(PyEnum):
-    URI = 'URI'
-    CONFLUENCE = 'Confluence'
-    FILE = 'file'
     TEXT_INPUT = 'text_input'
+    FILE = 'file'
+    URI = 'uri'
     WEB_SCRAPING = 'web_scraping'
+    CONFLUENCE = 'Confluence'
 
 class DocumentStatus(PyEnum):
     DRAFT = 'draft'

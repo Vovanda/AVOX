@@ -6,11 +6,14 @@ services:
     environment:
       - DB_HOST=${DB_HOST:-postgres}
       - DB_PORT=${DB_PORT:-5432}
+      - PYTHONPATH=/app/avox_shared
     depends_on:
       postgres:
         condition: service_healthy
       auth:
         condition: service_started
+    volumes:
+      - ./avox_shared:/app/avox_shared:ro
     ports:
       - "8000:8000"
     networks:
@@ -20,8 +23,12 @@ services:
     build: avox_services/auth
     env_file:
       - avox_services/auth/.env.${APP_ENV:-local}
+    environment:
+      - PYTHONPATH=/app/avox_shared
     depends_on:
       - redis
+    volumes:
+      - ./avox_shared:/app/avox_shared:ro
     ports:
       - "8001:8001"
     networks:
@@ -31,8 +38,12 @@ services:
     build: avox_services/tasks_manager
     env_file:
       - avox_services/tasks_manager/.env.${APP_ENV:-local}
+    environment:
+      - PYTHONPATH=/app/avox_shared
     depends_on:
       - postgres
+    volumes:
+      - ./avox_shared:/app/avox_shared:ro
     ports:
       - "8002:8002"
     networks:
@@ -45,9 +56,12 @@ services:
     environment:
       - DB_SCHEMA=kno
       - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - PYTHONPATH=/app/avox_shared
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
       interval: 30s
+    volumes:
+      - ./avox_shared:/app/avox_shared:ro
     networks:
       - avox_net
 
@@ -68,7 +82,7 @@ services:
       - ./pg_data:/var/lib/postgresql/data
       - ./avox_services/knowledge_service/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
-    - "5432:5432"
+      - "5432:5432"
     networks:
       - avox_net
 

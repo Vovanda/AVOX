@@ -1,4 +1,14 @@
-fastapi==0.110.0
-uvicorn[standard]==0.29.0
-python-dotenv==1.0.1
+# FastAPI и сервер
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+
+# HTTP клиент для проброса запросов в knowledge_service
 httpx==0.27.0
+
+# Работа с конфигами (.env)
+python-dotenv==1.0.1
+
+# Опционально (если будет авторизация)
+# jose==3.3.0
+# passlib[bcrypt]==1.7.4
+# python-jose==3.3.0

@@ -11,8 +11,8 @@ from knowledge_service.app.llm.base_provider import BaseLLMProvider
 from knowledge_service.app.llm.provider_factory import get_llm_provider
 from knowledge_service.app.llm.rag_pipeline import KnowledgeRAGPipeline
 from knowledge_service.app.models.core.company import User
+from knowledge_service.app.services import DocumentIngestor
 from knowledge_service.app.services.auth import get_current_active_user
-from knowledge_service.app.services.document_ingestor import DocumentIngestor
 
 
 def get_document_ingestor(db: Session = Depends(get_db)) -> DocumentIngestor:
@@ -38,3 +38,4 @@ def get_rag_pipeline(
 LLMDep = Annotated[BaseLLMProvider, Depends(get_llm)]
 RAGUserDep = Annotated[User, Depends(get_current_active_user)]
 RAGPipelineDep = Annotated[KnowledgeRAGPipeline, Depends(get_rag_pipeline)]
+RAGDocumentIngestor = Annotated[DocumentIngestor, Depends(get_document_ingestor)]

@@ -1,18 +1,27 @@
 import uuid
 from typing import List
 
+import nltk
 from nltk.tokenize import sent_tokenize
 from sentence_transformers import SentenceTransformer
 from sqlalchemy.orm import Session
 from transformers import AutoTokenizer
 
-from knowledge_service.app.api.schemas.document import DocumentIngestResponse
+from avox_shared.knowledge_service.document import DocumentIngestResponse
 from knowledge_service.app.models.core.document import Document, DocumentChunk, ChunkEmbedding384
 from knowledge_service.app.models.enums import DocAccessLevel, SourceType, EmbeddingStatus
 
 
 class DocumentIngestor:
     def __init__(self, db: Session):
+
+        try:
+            nltk.data.find("tokenizers/punkt")
+            nltk.data.find("tokenizers/punkt_tab")
+        except LookupError:
+            nltk.download("punkt")
+            nltk.download("punkt_tab")
+
         self.db = db
         self.model_name = "sentence-transformers/all-MiniLM-L6-v2"
         self.model = SentenceTransformer(self.model_name)
@@ -31,15 +40,24 @@ class DocumentIngestor:
             stride=self.subchunk_overlap_tokens,
             truncation=True,
             return_overflowing_tokens=True,
-            return_offsets_mapping=True
+            return_offsets_mapping=True,
+            padding=False
         )
+
         subchunks = []
-        for i, input_ids in enumerate(encoding['input_ids']):
-            offsets = encoding['offset_mapping'][i]
-            start_char = offsets[0][0]
-            end_char = offsets[-1][1]
-            subchunk_text = text[start_char:end_char]
-            subchunks.append(subchunk_text)
+        for offsets in encoding['offset_mapping']:
+            valid_offsets = [(start, end) for start, end in offsets if
+                             start is not None and end is not None and start < end]
+
+            if not valid_offsets:
+                continue
+
+            start_char, end_char = valid_offsets[0][0], valid_offsets[-1][1]
+            subchunk_text = text[start_char:end_char].strip()
+
+            if subchunk_text:
+                subchunks.append(subchunk_text)
+
         return subchunks
 
     def _split_into_chunks_with_overlap(self, sentences: List[str], chunk_size: int, overlap: int) -> List[List[str]]:
@@ -59,7 +77,7 @@ class DocumentIngestor:
         owner_id: uuid.UUID,
         source_type: SourceType,
         access_level: DocAccessLevel,
-    ) -> Document:
+    ) -> DocumentIngestResponse:
 
         sentences = sent_tokenize(text)
 
@@ -77,6 +95,7 @@ class DocumentIngestor:
             access_level=access_level,
             is_approved=(access_level == DocAccessLevel.RESTRICTED),
         )
+
         self.db.add(doc)
         self.db.flush()
 
@@ -103,9 +122,8 @@ class DocumentIngestor:
                     chunk_id=chunk.id,
                     vector=embedding_vector.tolist(),
                     embedding_model=self.model_name,
-                    embedding_scope="subchunk",
+                    embedding_scope="sentence",
                     subchunk_idx=subchunk_idx,
-                    chunk_scope="sentence_chunk",
                     overlap = self.subchunk_overlap_tokens,
                     status=EmbeddingStatus.COMPLETED
                 )

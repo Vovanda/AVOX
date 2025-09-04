@@ -15,8 +15,7 @@ load_dotenv(dotenv_path=os.path.join(project_dir, f".env.{env}.secrets"), overri
 def get_database_url():
     app_env = os.getenv("APP_ENV", "local")
     db_driver = os.getenv("DB_DRIVER", "psycopg")
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    project_dir = os.path.dirname(base_dir)
+    project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
     # Определяем путь к паролю
     password = ""
@@ -26,7 +25,10 @@ def get_database_url():
         password_path = secret_file
     else:
         # Используется вне Docker
-        password_path = os.path.join(project_dir, "secrets", app_env, "db_password.txt")
+        password_path = os.path.join(
+            project_dir,
+            "secrets", app_env,
+            "db_password.txt")
 
     if os.path.isfile(password_path):
         with open(password_path, "r") as f:

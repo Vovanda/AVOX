@@ -1,23 +1,24 @@
-import uuid
+from http.client import HTTPException
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
+from pydantic import BaseModel
 
-from knowledge_service.app.api.schemas.document import DocumentIngestRequest, DocumentIngestResponse
-from knowledge_service.app.api.schemas.rag import RAGQuery, RAGResponse
-from knowledge_service.app.deps import RAGPipelineDep, RAGUserDep, get_document_ingestor
-from knowledge_service.app.llm.rag_pipeline import KnowledgeRAGPipeline
-from knowledge_service.app.models.core.company import User
-from knowledge_service.app.services.document_ingestor import DocumentIngestor
+from avox_shared.knowledge_service.document import DocumentIngestRequest, DocumentIngestResponse
+from avox_shared.knowledge_service.rag import RAGQuery, RAGResponse
+from knowledge_service.app.deps import RAGPipelineDep, RAGUserDep, RAGDocumentIngestor
 
 router = APIRouter(prefix="/rag", tags=["RAG Operations"])
 
 @router.post("/ingest-documents", response_model=DocumentIngestResponse)
 def ingest_documents(
     req: DocumentIngestRequest,
-    current_user: User = Depends(RAGUserDep),
-    ingestor: DocumentIngestor = Depends(get_document_ingestor),
+    current_user: RAGUserDep,
+    ingestor: RAGDocumentIngestor,
 ):
     result: DocumentIngestResponse
+
+    if not current_user or not current_user.company_id:
+        raise HTTPException(status_code=400, detail="Invalid user context")
 
     try:
         result = ingestor.ingest(
@@ -40,25 +41,20 @@ def ingest_documents(
 
 @router.post("/query", response_model=RAGResponse)
 def query(
-    question: str,
-    pipeline: KnowledgeRAGPipeline = Depends(RAGPipelineDep),
-    current_user: User = Depends(RAGUserDep),
+    rag_query: RAGQuery,
+    pipeline: RAGPipelineDep,
+    current_user: RAGUserDep,
 ):
-    return pipeline.iterative_answer(user=current_user, question=question)
 
+    if not current_user or not current_user.company_id:
+        raise HTTPException(status_code=400, detail="Invalid user context")
 
-@router.post("/documents/{doc_id}/query", response_model=RAGResponse)
-def query_single_document(
-    doc_id: uuid.UUID,
-    query: RAGQuery,
-    pipeline: KnowledgeRAGPipeline = Depends(RAGPipelineDep),
-    current_user: User = Depends(RAGUserDep),
-):
-    """Поиск по конкретному документу по его UUID"""
-    return pipeline.iterative_answer(question=query.question, doc_ids=[doc_id], user=current_user)
+    return pipeline.iterative_answer(user=current_user, doc_ids=rag_query.doc_ids, question=rag_query.question);
 
+class HealthResponse(BaseModel):
+    status: str
 
-@router.get("/health", tags=["Health"])
+@router.get("/health", response_model=HealthResponse)
 def health_check():
     """
     Проверка состояния сервиса.

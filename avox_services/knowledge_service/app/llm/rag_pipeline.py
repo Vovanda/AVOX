@@ -1,24 +1,39 @@
+import json
 import logging
-import re
 import time
+from collections import defaultdict
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import Dict, Any
 
+import numpy as np
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
+from numpy import ndarray
 from sentence_transformers import SentenceTransformer
-from sqlalchemy import or_, and_
+from sqlalchemy import and_, or_, text
 from sqlalchemy.orm import Session
 
-from knowledge_service.app.api.schemas.rag import Fact, RAGResponse
+from avox_shared.knowledge_service.rag import RAGResponse
 from knowledge_service.app.llm.base_provider import BaseLLMProvider
+from knowledge_service.app.llm.dto import *
+from knowledge_service.app.llm.rag_system_prompt import SYSTEM_PROMPT_TEMPLATE
 from knowledge_service.app.models import AccessGrant
 from knowledge_service.app.models.core.company import User
-from knowledge_service.app.models.core.document import Document, DocumentChunk, ChunkEmbedding384
-from knowledge_service.app.models.enums import DocAccessLevel, UserType, EmbeddingStatus
+from knowledge_service.app.models.core.document import Document
+from knowledge_service.app.models.enums import DocAccessLevel, UserType
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+def cosine_distance(vec1: ndarray, vec2: ndarray) -> float:
+    norm1 = np.linalg.norm(vec1)
+    norm2 = np.linalg.norm(vec2)
+    if norm1 == 0 or norm2 == 0:
+        return 1.0
+    cosine_sim = np.dot(vec1, vec2) / (norm1 * norm2)
+    return 1 - cosine_sim
+
+
 class KnowledgeRAGPipeline:
     HISTORY_LIMIT = 20
     SUMMARIZE_OLD_MESSAGES = 10
@@ -27,29 +42,10 @@ class KnowledgeRAGPipeline:
     def __init__(self, db_session: Session, llm_provider: BaseLLMProvider):
         self.db = db_session
         self.llm = llm_provider
-        self.prompt_template = self._create_prompt_template()
+        self.prompt_template = PromptTemplate(input_variables=["request_json"], template=SYSTEM_PROMPT_TEMPLATE.strip())
         self.memory: Dict[str, List[Dict[str, str]]] = {}
         self.embedder = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
 
-    def _create_prompt_template(self) -> PromptTemplate:
-        return PromptTemplate(
-            input_variables=["task", "question", "context", "previous_facts"],
-            template="""
-Task: {task}
-Role: AVOX Knowledge Assistant
-
-Question: {question}
-Context Documents: {context}
-Previous Facts: {previous_facts}
-
-Response Format:
-Reasoning: <step-by-step analysis>
-New Facts: <list of facts with certainty levels: confirmed|likely|contradicts>
-Answer: <final synthesized response>
-Confidence: <0.0-1.0>
-Source Documents: <list of doc IDs>
-""".strip()
-        )
 
     def _get_accessible_docs(self, user: Optional[User]) -> List[Document]:
         query = self.db.query(Document)
@@ -83,100 +79,271 @@ Source Documents: <list of doc IDs>
             internal_docs,
             access_granted_docs
         )
-        query = query.filter(access_filter)
-        return query.all()
+        return query.filter(access_filter).all()
 
-    def _get_similar_chunks(self, question: str, user: Optional[User]) -> List[DocumentChunk]:
+    def _get_similar_chunks(
+            self,
+            question: str,
+            user: Optional[User],
+            top_k: int = 20,
+            subchunk_top_k: int = 3,
+            score_threshold: float = 0.25
+    ) -> List[Dict[str, Any]]:
+        start_time = time.time()
         accessible_docs = self._get_accessible_docs(user)
-        accessible_doc_ids = [doc.id for doc in accessible_docs]
-
-        if not accessible_doc_ids:
+        doc_ids = [str(doc.id) for doc in accessible_docs]
+        if not doc_ids:
             return []
 
-        query_vector = self.embedder.encode([question])[0].tolist()
+        query_vector_np = self.embedder.encode([question])[0]
+        query_vector = query_vector_np.tolist()
 
-        # Быстрый поиск по ivfflat
-        top_chunks = (
-            self.db.query(DocumentChunk, ChunkEmbedding384.vector)
-            .join(ChunkEmbedding384, ChunkEmbedding384.chunk_id == DocumentChunk.id)
-            .filter(
-                DocumentChunk.document_id.in_(accessible_doc_ids),
-                ChunkEmbedding384.status == EmbeddingStatus.COMPLETED
-            )
-            .order_by(ChunkEmbedding384.vector.cosine_distance(query_vector))
-            .limit(self.TOP_K)
-            .all()
+        sql = """
+        WITH best_subchunks AS (
+            SELECT DISTINCT ON (dc.id)
+                dc.id AS chunk_id,
+                dc.document_id,
+                dc.chunk_text,
+                dc.chunk_idx,
+                (emb.vector <=> CAST(:query_vector AS vector)) AS best_distance
+            FROM document_chunks dc
+            JOIN chunk_embeddings_384 emb ON emb.chunk_id = dc.id
+            WHERE dc.document_id = ANY(CAST(:doc_ids AS uuid[]))
+              AND emb.status = 'COMPLETED'
+            ORDER BY dc.id, best_distance ASC
+        ),
+        top_subchunks AS (
+            SELECT
+                dc.id AS chunk_id,
+                (emb.vector <=> CAST(:query_vector AS vector)) AS dist,
+                ROW_NUMBER() OVER (PARTITION BY dc.id ORDER BY (emb.vector <=> CAST(:query_vector AS vector))) AS subchunk_rank
+            FROM document_chunks dc
+            JOIN chunk_embeddings_384 emb ON emb.chunk_id = dc.id
+            WHERE dc.document_id = ANY(CAST(:doc_ids AS uuid[]))
+              AND emb.status = 'COMPLETED'
         )
+        SELECT
+            b.chunk_id,
+            b.document_id,
+            b.chunk_idx,
+            b.chunk_text,
+            b.best_distance,
+            AVG(t.dist) FILTER (WHERE t.subchunk_rank <= :subchunk_top_k) AS avg_distance,
+            SUM((t.subchunk_rank <= :subchunk_top_k)::int) AS match_count
+        FROM best_subchunks b
+        JOIN top_subchunks t ON t.chunk_id = b.chunk_id
+        GROUP BY b.chunk_id, b.document_id, b.chunk_text, b.chunk_idx, b.best_distance
+        ORDER BY b.best_distance ASC
+        LIMIT :top_k;
+        """
+        result = self.db.execute(
+            text(sql),
+            {"query_vector": query_vector, "doc_ids": doc_ids, "top_k": top_k, "subchunk_top_k": subchunk_top_k}
+        ).mappings().all()
 
-        # Фильтрация по расстоянию в Python
-        return [
-            chunk for chunk, vector in top_chunks
-            if vector.cosine_distance(query_vector) < 0.6
-        ]
+        chunks = []
+        for row in result:
+            best_distance = float(row["best_distance"])
+            avg_distance = float(row["avg_distance"]) if row["avg_distance"] is not None else best_distance
+            match_count = int(row["match_count"])
 
-    def _process_document(self, doc: Document, question: str, facts: List[Fact], previous_context: str = "") -> Dict:
+            norm_best = 1 - best_distance
+            norm_avg = 1 - avg_distance
+            norm_match = match_count / subchunk_top_k
+            score = 0.6 * norm_best + 0.3 * norm_avg + 0.1 * norm_match
+
+            if score >= score_threshold:
+                chunks.append({
+                    "chunk_id": row["chunk_id"],
+                    "document_id": row["document_id"],
+                    "chunk_idx": row["chunk_idx"],
+                    "chunk_text": row["chunk_text"],
+                    "best_distance": best_distance,
+                    "avg_distance": avg_distance,
+                    "match_count": match_count,
+                    "score": score
+                })
+
+        elapsed = time.time() - start_time
+        logger.debug(f"Retrieved {len(chunks)} chunks in {elapsed:.3f}s for user {user.id if user else 'anon'}")
+        return chunks
+
+    def _parse_response(self, response: str) -> LLMDocumentResponse:
+        """
+        Извлекает JSON-ответ из LLM и конвертирует в LLMDocumentResponse.
+        Если JSON некорректен — возвращает пустой ответ.
+        """
         try:
-            context = f"Document {doc.id} ({doc.title}):\n" + "\n".join(
-                [f"Chunk {idx}: {chunk.chunk_text}" for idx, chunk in enumerate(doc.chunks, 1)]
+            # Ищем первый JSON в тексте
+            start = response.find("{")
+            end = response.rfind("}") + 1
+            json_str = response[start:end]
+            data = json.loads(json_str)
+
+            # Приводим поля new_facts/updated_facts к FactCertainty
+            def parse_facts(facts_list):
+                result = []
+                for f in facts_list:
+                    result.append(Fact(
+                        id=f.get("id"),
+                        fact=f["fact"],
+                        certainty=FactCertainty(f["certainty"].lower()),
+                        reasoning=f.get("reasoning", "")
+                    ))
+                return result
+
+            return LLMDocumentResponse(
+                answer=data.get("answer", ""),
+                reasoning=data.get("reasoning", ""),
+                new_facts=parse_facts(data.get("new_facts", [])),
+                updated_facts=parse_facts(data.get("updated_facts", [])),
+                can_answer=data.get("can_answer", False)
             )
-            chain = LLMChain(llm=self.llm, prompt=self.prompt_template)
-            response = chain.run({
+        except Exception as e:
+            logger.error(f"Failed to parse LLM JSON response: {str(e)}")
+            return LLMDocumentResponse(answer="", reasoning="", new_facts=[], updated_facts=[], can_answer=False)
+
+    def _process_document(
+            self,
+            chunks: List[dict],
+            question: str,
+            previous_facts: List[Fact],
+            previous_answer: str,
+            dialog_history: str
+    ) -> LLMDocumentResponse:
+        """
+        Формирует запрос к LLM, передаёт контекст, предыдущие факты и историю диалога.
+        Возвращает LLMDocumentResponse.
+        """
+        try:
+            if not chunks:
+                return LLMDocumentResponse(answer="", reasoning="", new_facts=[], updated_facts=[], can_answer=False)
+
+            # Подготовка контекста
+            document_id = chunks[0]["document_id"]
+            document_context = [
+                {"chunk_id": c["chunk_id"], "chunk_text": c["chunk_text"]} for c in chunks
+            ]
+
+            # Формируем DTO запроса
+            request_dto: LLMDocumentRequest = {
                 "task": "Analyze document for relevant information",
                 "question": question,
-                "context": context,
-                "previous_facts": previous_context
-            })
-            return self._parse_response(response)
+                "document_context": document_context,
+                "previous_facts": previous_facts,
+                "previous_answer": previous_answer,
+                "dialog_history": dialog_history
+            }
+
+            request_json = json.dumps(request_dto, ensure_ascii=False)
+
+            chain = LLMChain(llm=self.llm, prompt=self.prompt_template)
+            response_text = chain.run({"request_json": request_json})
+
+            return self._parse_response(response_text)
+
         except Exception as e:
             logger.error(f"Document processing failed: {str(e)}")
-            return {"answer": "", "new_facts": []}
+            return LLMDocumentResponse(answer="", reasoning="", new_facts=[], updated_facts=[], can_answer=False)
+
+    def _format_history(self, history: List[Dict[str, str]]) -> str:
+        return "\n".join([f"{m['role']}: {m['text']}" for m in history])
 
     def iterative_answer(self, user: User, question: str, doc_ids: Optional[List[str]] = None) -> RAGResponse:
         start_time = time.time()
         logger.info(f"Starting RAG processing for user {user.id}, question: {question}")
 
         try:
-            docs_chunks = self._get_similar_chunks(question, user)
-            facts: List[Fact] = []
+            # Получаем релевантные чанки
+            chunk_dicts = self._get_similar_chunks(question, user, score_threshold=0.3)
+
+            # Группировка по документу
+            grouped_chunks: dict[str, list[dict]] = defaultdict(list)
+            for chunk in chunk_dicts:
+                grouped_chunks[chunk["document_id"]].append(chunk)
+
+            # Сортировка чанков внутри документа
+            for chunks in grouped_chunks.values():
+                chunks.sort(key=lambda ch: ch.get("chunk_idx", 0))
+
+            # Инициализация глобального списка фактов, ответа и истории
+            facts: Dict[str, Fact] = {}
+            fact_counter = 0
+            answer = ""
             user_id = str(user.id)
             history = self.memory.get(user_id, [])
             history.append({"role": "user", "text": question})
+            dialog_history = self._format_history(history)
 
-            for i, chunk in enumerate(docs_chunks):
-                is_last = i == len(docs_chunks) - 1
-                previous_context = self._format_history(history) if is_last else ""
-                result = self._process_document(chunk, question, facts, previous_context)
+            for doc_id, chunks in grouped_chunks.items():
+                # Формируем previous_facts для LLM
+                previous_facts_list = [
+                    {
+                        "id": fact_id,
+                        "fact": fact.text,
+                        "certainty": fact.certainty,
+                        "reasoning": fact.reasoning
+                    }
+                    for fact_id, fact in facts.items()
+                ]
 
-                history.append({"role": "system", "text": result.get("answer", "")})
-                facts.extend([
-                    Fact(
-                        text=fact["text"],
-                        certainty=fact["certainty"],
-                        reasoning=fact["reasoning"],
-                        source_doc_id=str(chunk.document_id),
-                        source_doc_chuk_id=str(chunk.id),
-                        timestamp=datetime.now()
+                # Обработка документа
+                result: LLMDocumentResponse = self._process_document(
+                    chunks,
+                    question,
+                    previous_facts_list,
+                    previous_answer=answer,
+                    dialog_history=dialog_history
+                )
+
+                # Обновляем previous_answer
+                answer = result.answer
+
+                # Добавляем новые факты и обновляем существующие
+                for new_fact in result.new_facts:
+                    if new_fact["certainty"] == "contradicts":
+                        continue
+
+                    fact_counter += 1
+                    fact_id = str(fact_counter)
+
+                    facts[fact_id] = Fact(
+                        id=fact_id,
+                        fact=new_fact["fact"],
+                        certainty=new_fact["certainty"],
+                        reasoning=new_fact.get("reasoning", "")
                     )
-                    for fact in result.get("new_facts", [])
-                    if fact.get("certainty") != "contradicts"
-                ])
 
-                if len(history) > self.HISTORY_LIMIT:
-                    history = self._summarize_old_messages(history)
+                for updated_fact in result.updated_facts:
+                    fact_id = updated_fact.id
+                    if not fact_id or fact_id not in facts:
+                        continue
+                    if updated_fact.certainty == FactCertainty.CONTRADICTS:
+                        del facts[fact_id]
+                    else:
+                        facts[fact_id].fact = updated_fact.text or facts[fact_id].fact
+                        facts[fact_id].certainty = updated_fact.certainty or facts[fact_id].certainty
+                        facts[fact_id].reasoning = updated_fact.reasoning or facts[fact_id].reasoning
 
+            # Обновляем историю
+            history.append({"role": "system", "text": answer})
             self.memory[user_id] = history
             processing_time_ms = int((time.time() - start_time) * 1000)
 
+            used_doc_ids = list(grouped_chunks.keys())
+            used_chunk_ids = [str(chunk["chunk_id"]) for chunks in grouped_chunks.values() for chunk in chunks]
+
             return RAGResponse(
-                final_result=self._synthesize_answer(facts),
-                facts=facts,
-                reasoning="\n".join(f.reasoning for f in facts),
-                used_documents=[str(ch.document_id) for ch in docs_chunks],
-                used_doc_chunks=[str(ch.id) for ch in docs_chunks],
+                final_result=self._synthesize_answer(list(facts.values())),
+                facts=list(facts.values()),
+                reasoning="\n".join(f.reasoning for f in facts.values()),
+                used_documents=used_doc_ids,
+                used_doc_chunks=used_chunk_ids,
                 confidence=min(1.0, len(facts) * 0.2),
                 llm_provider=self.llm.__class__.__name__,
                 processing_time_ms=processing_time_ms
             )
+
         except Exception as e:
             logger.error(f"Pipeline execution failed: {str(e)}")
             return RAGResponse(
@@ -190,64 +357,3 @@ Source Documents: <list of doc IDs>
                 processing_time_ms=int((time.time() - start_time) * 1000)
             )
 
-    def _summarize_old_messages(self, history: List[Dict[str, str]]) -> List[Dict[str, str]]:
-        to_summarize = history[:self.SUMMARIZE_OLD_MESSAGES]
-        remaining = history[self.SUMMARIZE_OLD_MESSAGES:]
-
-        combined_text = "\n".join([f"{m['role']}: {m['text']}" for m in to_summarize])
-        prompt_text = (
-            "Суммируй кратко следующую историю переписки между пользователем и системой, "
-            "выделяя ключевые моменты и факты:\n\n"
-            f"{combined_text}\n\nКраткое резюме:"
-        )
-
-        chain = LLMChain(llm=self.llm, prompt=PromptTemplate(
-            input_variables=["text"],
-            template="{text}"
-        ))
-        summary_text = chain.run({"text": prompt_text}).strip()
-        summary = {"role": "system", "text": f"[History Summary]: {summary_text}"}
-        return [summary] + remaining
-
-    def _format_history(self, history: List[Dict[str, str]]) -> str:
-        return "\n".join([f"{m['role']}: {m['text']}" for m in history])
-
-    def _parse_response(self, response: str) -> Dict:
-        try:
-            def extract_block(label: str) -> str:
-                pattern = re.compile(rf"{label}\s*(.*?)(?=\n\\S|$)", re.DOTALL | re.IGNORECASE)
-                match = pattern.search(response)
-                return match.group(1).strip() if match else ""
-
-            reasoning = extract_block("Reasoning:")
-            facts_block = extract_block("New Facts:")
-            answer = extract_block("Answer:")
-            confidence_str = extract_block("Confidence:")
-            docs_str = extract_block("Source Documents:")
-
-            new_facts = []
-            for line in facts_block.split("\n"):
-                line = line.strip()
-                if not line:
-                    continue
-                m = re.match(r"-\s*(.+?)\s*\((confirmed|likely|contradicts)\):\s*(.+)", line, re.IGNORECASE)
-                if m:
-                    new_facts.append({
-                        "text": m.group(1),
-                        "certainty": m.group(2).lower(),
-                        "reasoning": m.group(3)
-                    })
-
-            return {
-                "reasoning": reasoning,
-                "answer": answer,
-                "confidence": float(confidence_str) if confidence_str else 0.0,
-                "source_documents": [doc.strip() for doc in docs_str.split(",") if doc.strip()],
-                "new_facts": new_facts
-            }
-        except Exception as e:
-            logger.error(f"Failed to parse response: {str(e)}")
-            return {"answer": "", "new_facts": []}
-
-    def _synthesize_answer(self, facts: List[Fact]) -> str:
-        return "\n".join([f"- {f.text}" for f in facts])

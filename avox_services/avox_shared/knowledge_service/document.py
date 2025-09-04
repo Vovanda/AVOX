@@ -1,4 +1,3 @@
-# knowledge_service/app/api/schemas/document.py
 import uuid
 from typing import Optional
 

@@ -10,6 +10,6 @@ __all__ = [
     'User',
     'Document',
     'DocumentChunk',
-    'ChunkEmbedding384'
+    'ChunkEmbedding384',
     'AccessGrant'
 ]

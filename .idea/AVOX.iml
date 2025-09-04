@@ -4,6 +4,7 @@
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/avox_services/auth/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/avox_services" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/avox_services/knowledge_service/tests" isTestSource="true" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.12 virtualenv at C:\Users\SawKing\Documents\repos\AVOX\avox_services\.venv" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
